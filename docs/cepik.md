@@ -37,3 +37,7 @@ Integracja odbywa się agregacyjnie po:
 Skrypt `src/extract_cepik.py` zapisuje dane do:
 
 `data/raw/cepik_dolnoslaskie_2023.csv`
+
+## Problem SSL
+
+Podczas połączenia z API CEPiK na nowszej wersji OpenSSL może wystąpić błąd `DH_KEY_TOO_SMALL`. W skrypcie zastosowano własny adapter SSL dla biblioteki requests, który obniża poziom bezpieczeństwa SSL tylko dla połączenia z API CEPiK.
