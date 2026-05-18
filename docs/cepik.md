@@ -32,12 +32,13 @@ Integracja odbywa się agregacyjnie po:
 - rodzaju paliwa,
 - województwie.
 
-## Wynik
-
-Skrypt `src/extract_cepik.py` zapisuje dane do:
-
-`data/raw/cepik_dolnoslaskie_2023.csv`
 
 ## Problem SSL
 
-Podczas połączenia z API CEPiK na nowszej wersji OpenSSL może wystąpić błąd `DH_KEY_TOO_SMALL`. W skrypcie zastosowano własny adapter SSL dla biblioteki requests, który obniża poziom bezpieczeństwa SSL tylko dla połączenia z API CEPiK.
+Podczas połączenia z API CEPiK na nowszej wersji OpenSSL wystąpił błąd `DH_KEY_TOO_SMALL`. W skrypcie zastosowano własny adapter SSL dla biblioteki requests, który obniża poziom bezpieczeństwa SSL tylko dla połączenia z API CEPiK.
+
+## Wynik testu
+
+Skrypt `src/extract_cepik.py` został uruchomiony poprawnie i pobrał 100 rekordów z API CEPiK. Wynik zapisano do pliku:
+
+`data/raw/cepik_dolnoslaskie_2023.csv`
