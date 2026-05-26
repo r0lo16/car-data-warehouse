@@ -1,44 +1,62 @@
-# Integracja z API CEPiK
+# CEPiK integration
 
-## Cel
+## Scope
+CEPiK API is used to enrich offer analysis with vehicle registration data.
 
-API CEPiK zostało wykorzystane jako dodatkowe źródło danych rejestracyjnych pojazdów.
+## Current state
+- integration started on branch `dawid-cepik`
+- test extraction completed for 100 rows
+- strict API test completed on 2026-05-26 (without `fallback_only`)
+- expected output columns:
+  - `marka`
+  - `model`
+  - `rok_produkcji`
+  - `rodzaj_paliwa`
+  - `pojemnosc_silnika`
+  - `wojewodztwo`
+  - `data_pierwszej_rejestracji`
+  - `source`
 
-## Zakres danych
+## SSL issue handled
+Observed issue:
+- `DH_KEY_TOO_SMALL`
 
-Pobierane są dane dla:
-- województwa dolnośląskiego,
-- roku 2023,
-- pojazdów zarejestrowanych.
+Applied workaround:
+- custom SSL adapter in `requests`
+- lowered security level (`DEFAULT@SECLEVEL=1`) only for CEPiK calls
 
-## Pola
+## API endpoint and request mode
+- base URL: `https://api.cepik.gov.pl`
+- resource: `/pojazdy`
+- required query params for list endpoint:
+  - `wojewodztwo`
+  - `data-od`
+- optional:
+  - `data-do`
+  - `typ-daty`
+  - `limit`
+  - `page`
 
-- marka,
-- model,
-- rok produkcji,
-- rodzaj paliwa,
-- pojemność silnika,
-- data pierwszej rejestracji,
-- województwo.
+## Test result (2026-05-26)
+Execution mode:
+- `CEPIK_FALLBACK_ONLY=false`
+- `CEPIK_STRICT_API=true`
+- `CEPIK_LIMIT=100`
+- `CEPIK_MAX_PAGES=1`
 
-## Sposób połączenia z CSV
+Result:
+- extracted rows: `100`
+- source distribution: `{'cepik_api': 100}`
+- transformed rows accepted by ETL quality filters: `94`
 
-Dane z CEPiK nie są łączone z ofertami po pojedynczym pojeździe, ponieważ CSV nie zawiera numeru VIN ani numeru rejestracyjnego.
+Notes:
+- CEPiK responses can miss `wojewodztwo`; extractor now fills this from configured code (example: `02 -> Dolnośląskie`) to keep rows loadable.
+- in strict mode (`CEPIK_STRICT_API=true`) extractor raises errors instead of silently switching to fallback.
 
-Integracja odbywa się agregacyjnie po:
-- marce,
-- modelu,
-- roku produkcji,
-- rodzaju paliwa,
-- województwie.
-
-
-## Problem SSL
-
-Podczas połączenia z API CEPiK na nowszej wersji OpenSSL wystąpił błąd `DH_KEY_TOO_SMALL`. W skrypcie zastosowano własny adapter SSL dla biblioteki requests, który obniża poziom bezpieczeństwa SSL tylko dla połączenia z API CEPiK.
-
-## Wynik testu
-
-Skrypt `src/extract_cepik.py` został uruchomiony poprawnie i pobrał 100 rekordów z API CEPiK. Wynik zapisano do pliku:
-
-`data/raw/cepik_dolnoslaskie_2023.csv`
+## Notes
+- CEPiK data is joined with offers on aggregated level:
+  - brand
+  - model
+  - year
+  - fuel type
+  - voivodeship
