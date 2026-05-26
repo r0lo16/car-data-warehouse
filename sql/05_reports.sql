@@ -61,3 +61,17 @@ JOIN dim_lokalizacja l ON l.id_lokalizacja = f.id_lokalizacja
 WHERE l.city IS NOT NULL
 GROUP BY l.city
 ORDER BY offers_count DESC;
+
+-- Porownanie liczby ofert i rejestracji
+SELECT
+    p.brand,
+    SUM(fo.liczba_ofert) AS offers_count,
+    COALESCE(SUM(fr.liczba_rejestracji), 0) AS registrations_count
+FROM fact_oferty fo
+JOIN dim_pojazd p ON p.id_pojazd = fo.id_pojazd
+LEFT JOIN fact_rejestracje fr
+    ON fr.id_pojazd = fo.id_pojazd
+   AND fr.id_paliwo = fo.id_paliwo
+GROUP BY p.brand
+ORDER BY offers_count DESC
+LIMIT 15;

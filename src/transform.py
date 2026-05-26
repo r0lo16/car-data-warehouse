@@ -5,7 +5,7 @@ from datetime import date
 
 import pandas as pd
 
-POLISH_MOJIBAKE_HINTS = ("Ĺ", "Ă", "Å", "â")
+POLISH_MOJIBAKE_HINTS = ("Ĺ", "Ă", "Å", "â", "Ã", "Â")
 
 
 def _fix_mojibake(value: str) -> str:
@@ -36,10 +36,11 @@ def _normalize_text(value: object, keep_case: bool = False) -> str | None:
 def _parse_int(value: object) -> int | None:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return None
-    digits = re.sub(r"[^\d]", "", str(value))
-    if not digits:
+    match = re.search(r"\d[\d\s]*", str(value))
+    if not match:
         return None
-    return int(digits)
+    digits = re.sub(r"\s+", "", match.group(0))
+    return int(digits) if digits else None
 
 
 def _parse_price(value: object) -> float | None:

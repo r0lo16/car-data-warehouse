@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import random
+import ssl
 from datetime import date
 from typing import Any
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.poolmanager import PoolManager
 
 from config import SETTINGS
 
@@ -20,12 +23,48 @@ CEPIK_COLUMNS = [
     "source",
 ]
 
+VOIVODESHIP_BY_CODE = {
+    "02": "Dolnośląskie",
+    "04": "Kujawsko-pomorskie",
+    "06": "Lubelskie",
+    "08": "Lubuskie",
+    "10": "Łódzkie",
+    "12": "Małopolskie",
+    "14": "Mazowieckie",
+    "16": "Opolskie",
+    "18": "Podkarpackie",
+    "20": "Podlaskie",
+    "22": "Pomorskie",
+    "24": "Śląskie",
+    "26": "Świętokrzyskie",
+    "28": "Warmińsko-mazurskie",
+    "30": "Wielkopolskie",
+    "32": "Zachodniopomorskie",
+}
+
+
+class CepikSSLAdapter(HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        ctx = ssl.create_default_context()
+        ctx.set_ciphers("DEFAULT@SECLEVEL=1")
+        self.poolmanager = PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            ssl_context=ctx,
+            **pool_kwargs,
+        )
+
 
 def _pick(dct: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         if key in dct and dct[key] not in (None, ""):
             return dct[key]
     return None
+
+
+def _default_wojewodztwo() -> str | None:
+    return VOIVODESHIP_BY_CODE.get(str(SETTINGS.cepik_wojewodztwo).zfill(2))
 
 
 def _extract_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -57,6 +96,8 @@ def _extract_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "source": "cepik_api",
             }
         )
+        if not rows[-1]["wojewodztwo"]:
+            rows[-1]["wojewodztwo"] = _default_wojewodztwo()
     return rows
 
 
@@ -70,13 +111,16 @@ def _fetch_cepik_api() -> pd.DataFrame:
         "wojewodztwo": SETTINGS.cepik_wojewodztwo,
         "data-od": SETTINGS.cepik_data_od,
         "data-do": SETTINGS.cepik_data_do,
+        "typ-daty": 1,
         "limit": SETTINGS.cepik_limit,
+        "page": 1,
     }
 
     rows: list[dict[str, Any]] = []
     next_url: str | None = url
     page = 0
     session = requests.Session()
+    session.mount("https://api.cepik.gov.pl", CepikSSLAdapter())
 
     while next_url and page < SETTINGS.cepik_max_pages:
         response = session.get(next_url, headers=headers, params=params if page == 0 else None, timeout=30)
@@ -131,8 +175,11 @@ def extract_cepik_data(offers_df: pd.DataFrame | None = None) -> pd.DataFrame:
         api_df = _fetch_cepik_api()
         if not api_df.empty:
             return api_df
+        if SETTINGS.cepik_strict_api:
+            raise RuntimeError("CEPiK API returned empty payload in strict mode.")
     except requests.RequestException:
-        pass
+        if SETTINGS.cepik_strict_api:
+            raise
 
     return _build_fallback_from_offers(offers_df if offers_df is not None else pd.DataFrame())
 

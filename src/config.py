@@ -35,7 +35,7 @@ class Settings:
     )
     offers_csv_path: Path = Path(os.getenv("OFFERS_CSV_PATH", DATA_RAW_DIR / "data_wroclaw_2023.csv"))
     cepik_base_url: str = os.getenv("CEPIK_BASE_URL", "https://api.cepik.gov.pl")
-    cepik_resource: str = os.getenv("CEPIK_RESOURCE", "/v1/pojazdy")
+    cepik_resource: str = os.getenv("CEPIK_RESOURCE", "/pojazdy")
     cepik_api_key: str | None = os.getenv("CEPIK_API_KEY")
     cepik_limit: int = int(os.getenv("CEPIK_LIMIT", "200"))
     cepik_max_pages: int = int(os.getenv("CEPIK_MAX_PAGES", "5"))
@@ -43,6 +43,7 @@ class Settings:
     cepik_data_od: str = os.getenv("CEPIK_DATA_OD", "20230101")
     cepik_data_do: str = os.getenv("CEPIK_DATA_DO", "20231231")
     cepik_fallback_only: bool = os.getenv("CEPIK_FALLBACK_ONLY", "false").lower() == "true"
+    cepik_strict_api: bool = os.getenv("CEPIK_STRICT_API", "false").lower() == "true"
 
 
 SETTINGS = Settings()

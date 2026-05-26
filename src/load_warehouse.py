@@ -6,6 +6,7 @@ from extract_currency import enrich_prices_with_currency, enrich_prices_with_emp
 from extract_cepik import extract_cepik_data
 from extract_csv import extract_offers_csv
 from load_staging import execute_sql_file, get_engine, load_staging_tables
+from sqlalchemy import text
 from transform import transform_cepik, transform_offers
 
 from config import DATA_PROCESSED_DIR, SQL_DIR
@@ -14,6 +15,25 @@ from config import DATA_PROCESSED_DIR, SQL_DIR
 def _run_sql_sequence(engine, sql_files: list[Path]) -> None:
     for sql_file in sql_files:
         execute_sql_file(engine, sql_file)
+
+
+def _truncate_warehouse_tables(engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                TRUNCATE TABLE
+                    fact_oferty,
+                    fact_rejestracje,
+                    dim_skrzynia,
+                    dim_paliwo,
+                    dim_pojazd,
+                    dim_lokalizacja,
+                    dim_czas
+                RESTART IDENTITY CASCADE;
+                """
+            )
+        )
 
 
 def run_pipeline() -> None:
@@ -43,6 +63,7 @@ def run_pipeline() -> None:
     cepik_clean.to_csv(DATA_PROCESSED_DIR / "cepik_clean.csv", index=False)
 
     load_staging_tables(engine, offers_enriched, cepik_clean)
+    _truncate_warehouse_tables(engine)
 
     warehouse_sql = [
         SQL_DIR / "03_load_dimensions.sql",
