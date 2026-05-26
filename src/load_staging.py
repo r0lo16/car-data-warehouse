@@ -23,5 +23,5 @@ def load_staging_tables(engine: Engine, offers_df: pd.DataFrame, cepik_df: pd.Da
     with engine.begin() as connection:
         connection.execute(text("TRUNCATE TABLE stg_oferty, stg_cepik RESTART IDENTITY;"))
 
-    offers_df.to_sql("stg_oferty", engine, if_exists="append", index=False, method="multi", chunksize=2000)
-    cepik_df.to_sql("stg_cepik", engine, if_exists="append", index=False, method="multi", chunksize=2000)
+    offers_df.to_sql("stg_oferty", engine, if_exists="append", index=False, method="multi", chunksize=200)
+    cepik_df.to_sql("stg_cepik", engine, if_exists="append", index=False, method="multi", chunksize=200)
