@@ -85,6 +85,37 @@ Run API:
 python -m uvicorn backend.app.main:app --host 0.0.0.0 --port 8000
 ```
 
+Helper dashboard (FastAPI):
+- `http://localhost:8000/dashboard`
+- this is a development/preview dashboard.
+
+## Metabase (docelowy dashboard BI)
+1. Skopiuj env:
+```bash
+cp .env.example .env
+# Windows PowerShell:
+Copy-Item .env.example .env
+```
+2. Uruchom kontenery:
+```bash
+docker compose up -d --build
+```
+3. Sprawdź usługi:
+- FastAPI: `http://localhost:8000/health`
+- Metabase: `http://localhost:3000`
+
+4. W Metabase dodaj PostgreSQL:
+- Host: `postgres`
+- Port: `5432`
+- DB: `car_warehouse` (lub wartość `POSTGRES_DB`)
+- User/Password: z `.env`
+
+5. Załaduj dane (ETL):
+```bash
+python src/load_warehouse.py
+```
+Po załadowaniu buduj karty i dashboard z zapytań w `sql/05_reports.sql`.
+
 ## Security rules
 Never commit:
 - `.env`

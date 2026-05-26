@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from backend.app.database import fetch_all, fetch_one
 from backend.app.schemas.reports import (
     BrandAvgPriceResponse,
+    BrandComparisonResponse,
     BrandCountResponse,
     FuelShareResponse,
     KpiResponse,
@@ -37,13 +38,24 @@ def get_kpi() -> KpiResponse:
         ORDER BY SUM(f.liczba_ofert) DESC
         LIMIT 1
     """
+    registrations_query = """
+        SELECT COALESCE(SUM(liczba_rejestracji), 0)::INT AS total_registrations
+        FROM fact_rejestracje
+    """
 
     metrics = fetch_one(metrics_query) or {"total_offers": 0, "avg_price": 0.0, "avg_mileage": 0.0}
+    registrations = fetch_one(registrations_query) or {"total_registrations": 0}
     top_brand = fetch_one(top_brand_query)
     top_fuel = fetch_one(top_fuel_query)
+    ratio = round(
+        (metrics["total_offers"] / registrations["total_registrations"]) if registrations["total_registrations"] else 0.0,
+        2,
+    )
 
     return KpiResponse(
         total_offers=metrics["total_offers"],
+        total_registrations=registrations["total_registrations"],
+        offers_to_registrations_ratio=ratio,
         avg_price=metrics["avg_price"],
         avg_mileage=metrics["avg_mileage"],
         top_brand=(top_brand["brand"] if top_brand else "N/A"),
@@ -111,3 +123,49 @@ def price_by_year() -> list[YearPriceResponse]:
         ORDER BY p.year
     """
     return [YearPriceResponse(**row) for row in fetch_all(query)]
+
+
+@router.get("/offers-vs-registrations", response_model=list[BrandComparisonResponse])
+def offers_vs_registrations() -> list[BrandComparisonResponse]:
+    query = """
+        WITH offers AS (
+            SELECT p.brand, SUM(f.liczba_ofert)::INT AS offers_count
+            FROM fact_oferty f
+            JOIN dim_pojazd p ON p.id_pojazd = f.id_pojazd
+            GROUP BY p.brand
+        ),
+        regs AS (
+            SELECT p.brand, SUM(fr.liczba_rejestracji)::INT AS registrations_count
+            FROM fact_rejestracje fr
+            JOIN dim_pojazd p ON p.id_pojazd = fr.id_pojazd
+            GROUP BY p.brand
+        ),
+        joined AS (
+            SELECT
+                o.brand,
+                o.offers_count,
+                COALESCE(r.registrations_count, 0)::INT AS registrations_count
+            FROM offers o
+            LEFT JOIN regs r ON r.brand = o.brand
+        )
+        SELECT
+            brand,
+            offers_count,
+            registrations_count,
+            ROUND(
+                100.0 * offers_count::numeric / NULLIF(SUM(offers_count) OVER (), 0),
+                2
+            )::float AS offers_share_pct,
+            ROUND(
+                100.0 * registrations_count::numeric / NULLIF(SUM(registrations_count) OVER (), 0),
+                2
+            )::float AS registrations_share_pct,
+            ROUND(
+                1000.0 * registrations_count::numeric / NULLIF(offers_count, 0),
+                2
+            )::float AS registrations_per_1000_offers
+        FROM joined
+        ORDER BY offers_count DESC
+        LIMIT 15
+    """
+    return [BrandComparisonResponse(**row) for row in fetch_all(query)]

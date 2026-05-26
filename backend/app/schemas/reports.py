@@ -3,6 +3,8 @@ from pydantic import BaseModel
 
 class KpiResponse(BaseModel):
     total_offers: int
+    total_registrations: int
+    offers_to_registrations_ratio: float
     avg_price: float
     avg_mileage: float
     top_brand: str
@@ -28,3 +30,12 @@ class FuelShareResponse(BaseModel):
 class YearPriceResponse(BaseModel):
     year: int
     avg_price: float
+
+
+class BrandComparisonResponse(BaseModel):
+    brand: str
+    offers_count: int
+    registrations_count: int
+    offers_share_pct: float
+    registrations_share_pct: float
+    registrations_per_1000_offers: float
