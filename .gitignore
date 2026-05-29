@@ -225,3 +225,4 @@ data/processed/
 .vscode/
 .idea/
 *.log
+.env
