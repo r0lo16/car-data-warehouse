@@ -11,6 +11,13 @@ class KpiResponse(BaseModel):
     top_fuel: str
 
 
+class ExchangeRatesResponse(BaseModel):
+    base_currency: str
+    rates: dict[str, float]
+    effective_dates: dict[str, str | None]
+    source: str
+
+
 class BrandCountResponse(BaseModel):
     brand: str
     offers_count: int

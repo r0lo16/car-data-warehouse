@@ -149,7 +149,7 @@ def dashboard() -> str:
     }
     .kpis {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      grid-template-columns: repeat(5, minmax(150px, 1fr));
       gap: 10px;
       margin-bottom: 12px;
     }
@@ -244,6 +244,7 @@ def dashboard() -> str:
     @media (max-width: 950px) {
       .grid, .grid-3 { grid-template-columns: 1fr; }
       .filters { grid-template-columns: 1fr 1fr; }
+      .kpis { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
     }
   </style>
 </head>
@@ -255,6 +256,10 @@ def dashboard() -> str:
         <p>Porównanie danych ofertowych (CSV) i rejestracyjnych (CEPiK).</p>
       </div>
       <div class="head-right">
+        <select id="currencySelect" style="border:1px solid var(--border);border-radius:10px;padding:7px 10px;background:rgba(9,15,26,.85);color:var(--ink);font-weight:700;">
+          <option value="PLN">PLN</option>
+        </select>
+        <span id="fxBadge" class="chip">NBP: -</span>
         <span id="syncBadge" class="chip">Aktualizacja: -</span>
         <button id="refreshBtn" class="btn">Odśwież</button>
       </div>
@@ -283,9 +288,13 @@ def dashboard() -> str:
       <article class="kpi"><div class="label">Liczba ofert (CSV)</div><div id="kpiOffers" class="value">-</div></article>
       <article class="kpi"><div class="label">Liczba rejestracji (CEPiK)</div><div id="kpiRegs" class="value">-</div></article>
       <article class="kpi"><div class="label">Współczynnik ofert/rejestracji</div><div id="kpiRatio" class="value">-</div></article>
-      <article class="kpi"><div class="label">Średnia cena (PLN)</div><div id="kpiPrice" class="value">-</div></article>
+      <article class="kpi"><div id="kpiPriceLabel" class="label">Średnia cena (PLN)</div><div id="kpiPrice" class="value">-</div></article>
       <article class="kpi"><div class="label">Średni przebieg</div><div id="kpiMileage" class="value">-</div></article>
       <article class="kpi"><div class="label">Najpopularniejsza marka</div><div id="kpiBrand" class="value">-</div></article>
+      <article class="kpi"><div class="label">Najpopularniejsze paliwo</div><div id="kpiTopFuel" class="value">-</div></article>
+      <article class="kpi"><div class="label">Udział top marki</div><div id="kpiTopBrandShare" class="value">-</div></article>
+      <article class="kpi"><div class="label">Rejestracje / 1000 ofert</div><div id="kpiRegsPer1000" class="value">-</div></article>
+      <article class="kpi"><div class="label">Dostępne waluty NBP</div><div id="kpiNbpCurrencies" class="value">-</div></article>
     </section>
 
     <section class="grid grid-3">
@@ -327,6 +336,10 @@ def dashboard() -> str:
         <h3>Udział rejestracji wg marki (Top 15)</h3>
         <div class="chart-box"><canvas id="regsShareByBrand"></canvas></div>
       </article>
+      <article class="card">
+        <h3>Udział pojemności silnika (po filtrach)</h3>
+        <div class="chart-box"><canvas id="engineCapacityShare"></canvas></div>
+      </article>
       <article class="card full-span">
         <h3>Oferty po filtrach</h3>
         <div class="table-wrap">
@@ -353,7 +366,13 @@ const fmtNum = (v) => new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 
 const fmtMoney = (v) => new Intl.NumberFormat('pl-PL', { maximumFractionDigits: 0 }).format(v ?? 0);
 const safe = (x) => (x ?? '').toString();
 
-const state = { offers: [], filtered: [] };
+const state = {
+  offers: [],
+  filtered: [],
+  currency: 'PLN',
+  rates: { PLN: 1, EUR: 1, USD: 1 },
+  rateSource: '-',
+};
 const charts = {};
 const PALETTE = {
   blue: '#58a6ff',
@@ -368,6 +387,61 @@ const PALETTE = {
 
 Chart.defaults.color = PALETTE.text;
 Chart.defaults.borderColor = PALETTE.grid;
+
+function getSelectedCurrency() {
+  return state.currency || 'PLN';
+}
+
+function getRate(currency) {
+  if (currency === 'PLN') return 1;
+  const rate = Number(state.rates[currency]);
+  return Number.isFinite(rate) && rate > 0 ? rate : 1;
+}
+
+function convertFromPln(value, currency) {
+  const amount = Number(value || 0);
+  const rate = getRate(currency);
+  if (!rate || !Number.isFinite(rate)) return 0;
+  if (currency === 'PLN') return amount;
+  return amount / rate;
+}
+
+function formatMoneyByCurrency(value, currency) {
+  const opts = currency === 'PLN'
+    ? { maximumFractionDigits: 0 }
+    : { minimumFractionDigits: 2, maximumFractionDigits: 2 };
+  const symbol = currency === 'PLN' ? 'PLN' : currency;
+  return `${new Intl.NumberFormat('pl-PL', opts).format(value ?? 0)} ${symbol}`;
+}
+
+function rebuildCurrencySelect() {
+  const select = document.getElementById('currencySelect');
+  const current = getSelectedCurrency();
+  const rateCodes = Object.keys(state.rates || {}).filter((c) => c !== 'PLN').sort();
+  const allCodes = ['PLN', ...rateCodes];
+  select.innerHTML = allCodes.map((code) => `<option value="${code}">${code}</option>`).join('');
+  if (allCodes.includes(current)) {
+    select.value = current;
+  } else {
+    state.currency = 'PLN';
+    select.value = 'PLN';
+  }
+}
+
+function renderFxBadge() {
+  const fxBadge = document.getElementById('fxBadge');
+  if (!fxBadge) return;
+  const entries = Object.entries(state.rates || {})
+    .filter(([code]) => code !== 'PLN')
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  if (!entries.length) {
+    fxBadge.textContent = `NBP: brak kursów (${state.rateSource})`;
+    return;
+  }
+  const top = entries.slice(0, 4).map(([code, value]) => `${code} ${Number(value).toFixed(4)}`).join(' | ');
+  const suffix = entries.length > 4 ? ` +${entries.length - 4}` : '';
+  fxBadge.textContent = `NBP ${top}${suffix} (${state.rateSource})`;
+}
 
 async function getJson(path) {
   const r = await fetch(path);
@@ -478,6 +552,29 @@ function topBy(rows, key, valueKey = 'offers_count', limit = 8) {
   return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, limit);
 }
 
+function getEngineCapacityBucket(value) {
+  const cc = Number(value);
+  if (!Number.isFinite(cc) || cc <= 0) return 'Brak danych';
+  if (cc <= 1200) return '<= 1200';
+  if (cc <= 1600) return '1201 - 1600';
+  if (cc <= 2000) return '1601 - 2000';
+  if (cc <= 2500) return '2001 - 2500';
+  return '> 2500';
+}
+
+function engineCapacityBuckets(rows) {
+  const labels = ['<= 1200', '1201 - 1600', '1601 - 2000', '2001 - 2500', '> 2500', 'Brak danych'];
+  const totals = new Map(labels.map((l) => [l, 0]));
+  rows.forEach((r) => {
+    const bucket = getEngineCapacityBucket(r.engine_capacity);
+    const count = Number(r.offers_count) || 0;
+    totals.set(bucket, (totals.get(bucket) || 0) + count);
+  });
+  return labels
+    .map((label) => [label, totals.get(label) || 0])
+    .filter(([, value]) => value > 0);
+}
+
 function buildFilters() {
   const brands = [...new Set(state.offers.map((x) => safe(x.brand)).filter(Boolean))].sort();
   const fuels = [...new Set(state.offers.map((x) => safe(x.fuel_type)).filter(Boolean))].sort();
@@ -502,8 +599,11 @@ function applyFilters() {
 
 function renderFiltered() {
   const rows = state.filtered;
+  const currency = getSelectedCurrency();
   const cityTop = topBy(rows, 'city', 'offers_count', 7);
+  const engineTop = engineCapacityBuckets(rows);
   doughnut('cityShare', cityTop.map((x) => x[0]), cityTop.map((x) => x[1]));
+  doughnut('engineCapacityShare', engineTop.map((x) => x[0]), engineTop.map((x) => x[1]));
 
   const tbody = document.getElementById('offersBody');
   tbody.innerHTML = rows
@@ -516,7 +616,7 @@ function renderFiltered() {
         <td>${safe(r.model)}</td>
         <td>${safe(r.fuel_type)}</td>
         <td>${safe(r.city)}</td>
-        <td>${fmtMoney(Number(r.avg_price_pln) || 0)}</td>
+        <td>${formatMoneyByCurrency(convertFromPln(Number(r.avg_price_pln) || 0, currency), currency)}</td>
         <td>${fmtNum(Number(r.offers_count) || 0)}</td>
       </tr>
     `)
@@ -524,7 +624,8 @@ function renderFiltered() {
 }
 
 async function loadData() {
-  const [kpi, topBrands, fuelShare, priceByYear, comparison, offers, avgPriceByBrand] = await Promise.all([
+  const [fx, kpi, topBrands, fuelShare, priceByYear, comparison, offers, avgPriceByBrand] = await Promise.all([
+    getJson('/reports/exchange-rates?codes=EUR,USD,GBP,CHF,CZK,NOK,SEK'),
     getJson('/reports/kpi'),
     getJson('/reports/top-brands'),
     getJson('/reports/fuel-share'),
@@ -534,20 +635,40 @@ async function loadData() {
     getJson('/reports/avg-price-by-brand'),
   ]);
 
+  state.rates = { ...(fx.rates || {}), PLN: 1 };
+  state.rateSource = safe(fx.source) || 'unknown';
+  rebuildCurrencySelect();
+  const currency = getSelectedCurrency();
+  const avgPriceConverted = convertFromPln(kpi.avg_price, currency);
+  const topBrandOffers = Number((topBrands[0] && topBrands[0].offers_count) || 0);
+  const topBrandSharePct = kpi.total_offers ? (100 * topBrandOffers / kpi.total_offers) : 0;
+  const regsPer1000 = kpi.total_offers ? (1000 * kpi.total_registrations / kpi.total_offers) : 0;
+  const nbpCurrenciesCount = Object.keys(state.rates || {}).filter((code) => code !== 'PLN').length;
+
   document.getElementById('kpiOffers').textContent = fmtNum(kpi.total_offers);
   document.getElementById('kpiRegs').textContent = fmtNum(kpi.total_registrations);
   document.getElementById('kpiRatio').textContent = kpi.offers_to_registrations_ratio;
-  document.getElementById('kpiPrice').textContent = fmtMoney(kpi.avg_price);
+  document.getElementById('kpiPrice').textContent = formatMoneyByCurrency(avgPriceConverted, currency);
+  document.getElementById('kpiPriceLabel').textContent = `Średnia cena (${currency})`;
   document.getElementById('kpiMileage').textContent = fmtNum(kpi.avg_mileage);
   document.getElementById('kpiBrand').textContent = kpi.top_brand;
+  document.getElementById('kpiTopFuel').textContent = kpi.top_fuel;
+  document.getElementById('kpiTopBrandShare').textContent = `${topBrandSharePct.toFixed(2)}%`;
+  document.getElementById('kpiRegsPer1000').textContent = regsPer1000.toFixed(2);
+  document.getElementById('kpiNbpCurrencies').textContent = fmtNum(nbpCurrenciesCount);
 
   bar('topBrands', topBrands.map((x) => x.brand), topBrands.map((x) => x.offers_count), PALETTE.blue);
   doughnut('fuelShare', fuelShare.slice(0, 6).map((x) => x.fuel_type), fuelShare.slice(0, 6).map((x) => x.share_pct));
-  line('priceByYear', priceByYear.map((x) => x.year), priceByYear.map((x) => x.avg_price), PALETTE.green);
+  line(
+    'priceByYear',
+    priceByYear.map((x) => x.year),
+    priceByYear.map((x) => convertFromPln(x.avg_price, currency)),
+    PALETTE.green,
+  );
   horizontalBar(
     'avgPriceByBrand',
     avgPriceByBrand.slice(0, 10).map((x) => x.brand),
-    avgPriceByBrand.slice(0, 10).map((x) => x.avg_price),
+    avgPriceByBrand.slice(0, 10).map((x) => convertFromPln(x.avg_price, currency)),
     PALETTE.amber,
   );
   groupedBar(
@@ -573,12 +694,17 @@ async function loadData() {
   state.filtered = [...offers];
   renderFiltered();
 
+  renderFxBadge();
   document.getElementById('syncBadge').textContent = 'Aktualizacja: ' + new Date().toLocaleString('pl-PL');
 }
 
 async function init() {
   document.getElementById('refreshBtn').addEventListener('click', () => {
     loadData().catch((e) => alert('Błąd odświeżania: ' + e.message));
+  });
+  document.getElementById('currencySelect').addEventListener('change', (event) => {
+    state.currency = event.target.value;
+    loadData().catch((e) => alert('Błąd przeliczenia walut: ' + e.message));
   });
   ['brandFilter', 'fuelFilter', 'cityFilter', 'modelFilter'].forEach((id) => {
     document.getElementById(id).addEventListener('input', applyFilters);

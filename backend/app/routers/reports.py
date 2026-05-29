@@ -1,16 +1,123 @@
-from fastapi import APIRouter
+from __future__ import annotations
+
+from datetime import datetime, timezone
+import re
+
+import requests
+from fastapi import APIRouter, Query
 
 from backend.app.database import fetch_all, fetch_one
 from backend.app.schemas.reports import (
     BrandAvgPriceResponse,
     BrandComparisonResponse,
     BrandCountResponse,
+    ExchangeRatesResponse,
     FuelShareResponse,
     KpiResponse,
     YearPriceResponse,
 )
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+_nbp_rates_cache: dict[str, object] = {}
+_nbp_url_template = "https://api.nbp.pl/api/exchangerates/rates/a/{code}/?format=json"
+_supported_default_codes = ["EUR", "USD", "GBP", "CHF", "CZK", "NOK", "SEK"]
+
+
+def _fetch_nbp_rate(code: str) -> tuple[float, str | None]:
+    response = requests.get(_nbp_url_template.format(code=code.lower()), timeout=20)
+    response.raise_for_status()
+    payload = response.json()
+    rate = float(payload["rates"][0]["mid"])
+    effective_date = payload["rates"][0].get("effectiveDate")
+    return rate, effective_date
+
+
+def _normalize_codes(codes: str | None) -> list[str]:
+    if not codes:
+        return _supported_default_codes
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in codes.split(","):
+        code = raw.strip().upper()
+        if not re.fullmatch(r"[A-Z]{3}", code):
+            continue
+        if code in seen:
+            continue
+        seen.add(code)
+        normalized.append(code)
+    return normalized or _supported_default_codes
+
+
+def _get_rates_from_staging() -> dict[str, float]:
+    row = fetch_one(
+        """
+        SELECT
+            ROUND(AVG(exchange_rate_eur), 4)::float AS eur,
+            ROUND(AVG(exchange_rate_usd), 4)::float AS usd,
+            MAX(extracted_at)::TEXT AS extracted_at
+        FROM stg_oferty
+        WHERE exchange_rate_eur IS NOT NULL
+          AND exchange_rate_usd IS NOT NULL
+        """
+    )
+    if not row:
+        return {}
+    rates: dict[str, float] = {}
+    if row["eur"] is not None:
+        rates["EUR"] = float(row["eur"])
+    if row["usd"] is not None:
+        rates["USD"] = float(row["usd"])
+    return rates
+
+
+def _get_exchange_rates_cached(codes: list[str], ttl_seconds: int = 3600) -> ExchangeRatesResponse:
+    cache_key = ",".join(codes)
+    now_ts = datetime.now(tz=timezone.utc).timestamp()
+    cached_bucket = _nbp_rates_cache.get(cache_key)
+    if isinstance(cached_bucket, dict):
+        cached_payload = cached_bucket.get("payload")
+        cached_expires = float(cached_bucket.get("expires_at_ts", 0.0))
+        if cached_payload is not None and now_ts < cached_expires:
+            return cached_payload  # type: ignore[return-value]
+
+    rates: dict[str, float] = {}
+    effective_dates: dict[str, str | None] = {}
+    had_nbp_error = False
+    for code in codes:
+        try:
+            rate, effective_date = _fetch_nbp_rate(code)
+            rates[code] = rate
+            effective_dates[code] = effective_date
+        except requests.RequestException:
+            had_nbp_error = True
+
+    staging_rates = _get_rates_from_staging()
+    fallback_used = False
+    for code in codes:
+        if code not in rates and code in staging_rates:
+            rates[code] = staging_rates[code]
+            effective_dates[code] = None
+            fallback_used = True
+
+    if not rates:
+        rates = {"EUR": 1.0, "USD": 1.0}
+        effective_dates = {"EUR": None, "USD": None}
+        source = "default_fallback"
+    elif fallback_used and had_nbp_error:
+        source = "nbp_api_with_staging_fallback"
+    elif fallback_used:
+        source = "staging_fallback"
+    else:
+        source = "nbp_api"
+
+    payload = ExchangeRatesResponse(
+        base_currency="PLN",
+        rates=rates,
+        effective_dates=effective_dates,
+        source=source,
+    )
+    _nbp_rates_cache[cache_key] = {"payload": payload, "expires_at_ts": now_ts + ttl_seconds}
+    return payload
 
 
 @router.get("/kpi", response_model=KpiResponse)
@@ -61,6 +168,12 @@ def get_kpi() -> KpiResponse:
         top_brand=(top_brand["brand"] if top_brand else "N/A"),
         top_fuel=(top_fuel["fuel_type"] if top_fuel else "N/A"),
     )
+
+
+@router.get("/exchange-rates", response_model=ExchangeRatesResponse)
+def get_exchange_rates(codes: str | None = Query(default=None)) -> ExchangeRatesResponse:
+    normalized_codes = _normalize_codes(codes)
+    return _get_exchange_rates_cached(normalized_codes)
 
 
 @router.get("/top-brands", response_model=list[BrandCountResponse])
