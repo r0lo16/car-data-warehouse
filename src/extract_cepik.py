@@ -24,20 +24,20 @@ CEPIK_COLUMNS = [
 ]
 
 VOIVODESHIP_BY_CODE = {
-    "02": "Dolnośląskie",
+    "02": "Dolnoslaskie",
     "04": "Kujawsko-pomorskie",
     "06": "Lubelskie",
     "08": "Lubuskie",
-    "10": "Łódzkie",
-    "12": "Małopolskie",
+    "10": "Lodzkie",
+    "12": "Malopolskie",
     "14": "Mazowieckie",
     "16": "Opolskie",
     "18": "Podkarpackie",
     "20": "Podlaskie",
     "22": "Pomorskie",
-    "24": "Śląskie",
-    "26": "Świętokrzyskie",
-    "28": "Warmińsko-mazurskie",
+    "24": "Slaskie",
+    "26": "Swietokrzyskie",
+    "28": "Warminsko-mazurskie",
     "30": "Wielkopolskie",
     "32": "Zachodniopomorskie",
 }
@@ -70,6 +70,7 @@ def _default_wojewodztwo() -> str | None:
 def _extract_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     data = payload.get("data", [])
     rows: list[dict[str, Any]] = []
+    default_voiv = _default_wojewodztwo()
 
     for item in data:
         attributes = item.get("attributes", {}) if isinstance(item, dict) else {}
@@ -85,7 +86,7 @@ def _extract_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
                     "pojemnosc_silnika",
                     "engine_capacity",
                 ),
-                "wojewodztwo": _pick(attributes, "wojewodztwo", "voivodeship"),
+                "wojewodztwo": _pick(attributes, "wojewodztwo", "voivodeship") or default_voiv,
                 "data_pierwszej_rejestracji": _pick(
                     attributes,
                     "data-pierwszej-rejestracji-w-kraju",
@@ -96,8 +97,6 @@ def _extract_rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 "source": "cepik_api",
             }
         )
-        if not rows[-1]["wojewodztwo"]:
-            rows[-1]["wojewodztwo"] = _default_wojewodztwo()
     return rows
 
 
@@ -149,8 +148,6 @@ def _build_fallback_from_offers(offers_df: pd.DataFrame) -> pd.DataFrame:
         registrations = max(1, int(row["liczba_ofert"] * rnd.uniform(0.6, 1.8)))
         max_repeat = min(registrations, 30)
         for _ in range(max_repeat):
-            month = rnd.randint(1, 12)
-            day = rnd.randint(1, 28)
             rows.append(
                 {
                     "marka": row["brand"],
@@ -159,7 +156,11 @@ def _build_fallback_from_offers(offers_df: pd.DataFrame) -> pd.DataFrame:
                     "rodzaj_paliwa": row["fuel_type"],
                     "pojemnosc_silnika": row["engine_capacity"],
                     "wojewodztwo": row["voivodeship"],
-                    "data_pierwszej_rejestracji": date(int(row["year"]), month, day),
+                    "data_pierwszej_rejestracji": date(
+                        int(row["year"]),
+                        rnd.randint(1, 12),
+                        rnd.randint(1, 28),
+                    ),
                     "source": "cepik_fallback",
                 }
             )
