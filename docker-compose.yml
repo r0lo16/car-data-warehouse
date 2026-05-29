@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: car_dw_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - car_dw_network
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: car_dw_fastapi
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    networks:
+      - car_dw_network
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: car_dw_metabase
+    restart: unless-stopped
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    ports:
+      - "${METABASE_PORT:-3000}:3000"
+    depends_on:
+      - postgres
+    volumes:
+      - metabase_data:/metabase-data
+    networks:
+      - car_dw_network
+
+volumes:
+  postgres_data:
+  metabase_data:
+
+networks:
+  car_dw_network:
+    driver: bridge
